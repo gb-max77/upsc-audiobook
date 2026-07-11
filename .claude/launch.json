@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "upsc-audiobook", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "4173", "--directory", "/Users/gbs/Documents/upsc-audiobook"], "port": 4173 }
+  ]
+}

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>ShrutiUPSC — Notes to Audio</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎧</span>
+      <div>
+        <h1>ShrutiUPSC</h1>
+        <p class="tagline">Turn your notes into revision audio</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab is-active" data-view="library">Library</button>
+      <button class="tab" data-view="add">Add Notes</button>
+      <button class="tab" data-view="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ LIBRARY ============ -->
+    <section id="view-library" class="view is-active">
+      <div class="view-head">
+        <h2>Your Notes</h2>
+        <input id="search" type="search" placeholder="Search notes…" />
+      </div>
+      <div id="library-list" class="card-grid"></div>
+      <div id="library-empty" class="empty">
+        <p>No notes yet.</p>
+        <button class="btn primary" data-goto="add">＋ Add your first note</button>
+      </div>
+    </section>
+
+    <!-- ============ ADD NOTES ============ -->
+    <section id="view-add" class="view">
+      <div class="view-head"><h2 id="add-head">Add Notes</h2></div>
+      <div class="form">
+        <label>Title
+          <input id="note-title" type="text" placeholder="e.g. Polity — Fundamental Rights" />
+        </label>
+
+        <div class="row">
+          <label class="grow">Split notes into
+            <select id="chunk-mode">
+              <option value="paragraph">Paragraphs (blank lines)</option>
+              <option value="heading">Sections (headings / ALL CAPS)</option>
+              <option value="sentence">Single sentences</option>
+              <option value="line">Each line</option>
+            </select>
+          </label>
+          <label class="file-btn">Import .txt / .docx
+            <input id="file-input" type="file" accept=".txt,.md,.text,.docx" hidden />
+          </label>
+        </div>
+
+        <label class="check memo">
+          <input id="memo-flow" type="checkbox" checked />
+          <span>🧠 <strong>Memorisation flow</strong> — restructure notes into recall-friendly narration (numbered points, expanded terms, section recaps)</span>
+        </label>
+
+        <label>Notes text
+          <textarea id="note-text" rows="14" placeholder="Paste your UPSC notes here…
+
+Tip: leave a blank line between points, or use headings like:
+FUNDAMENTAL RIGHTS
+Article 14 guarantees equality before law…"></textarea>
+        </label>
+
+        <div id="chunk-preview" class="preview"></div>
+
+        <div class="row end">
+          <button id="cancel-edit" class="btn ghost">Cancel</button>
+          <button id="save-note" class="btn primary">Save note</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="view-settings" class="view">
+      <div class="view-head"><h2>Voice &amp; Playback</h2></div>
+      <div class="form">
+        <label>Voice
+          <select id="voice-select"></select>
+        </label>
+        <label>Speed <output id="rate-out">1.0×</output>
+          <input id="rate" type="range" min="0.5" max="2" step="0.05" value="1" />
+        </label>
+        <label>Pitch <output id="pitch-out">1.0</output>
+          <input id="pitch" type="range" min="0.5" max="1.5" step="0.05" value="1" />
+        </label>
+        <hr />
+        <h3>Memorisation flow</h3>
+        <p class="hint">How notes are rephrased when “Memorisation flow” is on for a note.</p>
+        <label class="check"><input id="opt-number" type="checkbox" checked /> Numbered points (First, Second, Third…)</label>
+        <label class="check"><input id="opt-abbr" type="checkbox" checked /> Expand abbreviations (Art.→Article, DPSP→…)</label>
+        <label class="check"><input id="opt-recap" type="checkbox" checked /> Key-term recap after each section</label>
+        <label class="check"><input id="opt-recall" type="checkbox" /> Active recall — ask, pause, then answer</label>
+        <hr />
+        <h3>Playback</h3>
+        <label>Repeat each part <output id="repeat-out">1×</output>
+          <input id="repeat" type="range" min="1" max="5" step="1" value="1" />
+        </label>
+        <label>Pause between parts <output id="gap-out">0.4s</output>
+          <input id="gap" type="range" min="0" max="4" step="0.1" value="0.4" />
+        </label>
+        <label class="check">
+          <input id="loop" type="checkbox" /> Loop the whole note
+        </label>
+        <button id="test-voice" class="btn ghost">▶ Test voice</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ PLAYER (bottom sheet) ============ -->
+  <div id="player" class="player" hidden>
+    <div class="player-collapse">
+      <button id="player-close" class="icon-btn" title="Close">✕</button>
+      <div class="now-playing">
+        <strong id="np-title">—</strong>
+        <span id="np-progress">0 / 0</span>
+      </div>
+      <button id="player-expand" class="icon-btn" title="Expand reader">⤢</button>
+    </div>
+
+    <div id="reader" class="reader"></div>
+
+    <div class="controls">
+      <input id="seek" type="range" min="0" max="0" value="0" />
+      <div class="btn-row">
+        <button id="prev" class="ctrl" title="Previous (←)">⏮</button>
+        <button id="playpause" class="ctrl big" title="Play / Pause (Space)">▶</button>
+        <button id="next" class="ctrl" title="Next (→)">⏭</button>
+      </div>
+      <div class="quick">
+        <button id="rate-down" class="chip">−speed</button>
+        <span id="rate-chip" class="chip static">1.0×</span>
+        <button id="rate-up" class="chip">+speed</button>
+        <span class="spacer"></span>
+        <label class="chip sleep">
+          💤
+          <select id="sleep">
+            <option value="0">Off</option>
+            <option value="5">5m</option>
+            <option value="10">10m</option>
+            <option value="15">15m</option>
+            <option value="30">30m</option>
+            <option value="45">45m</option>
+            <option value="60">60m</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

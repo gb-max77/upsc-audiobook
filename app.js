@@ -431,14 +431,32 @@
     stopSpeech();
     const { sections, units } = buildUnits(note);
     P.note = note; P.sections = sections; P.queue = units;
+    // first unit index of each section, for theme jumping + current-theme tracking
+    P.sectionStarts = []; let acc = 0;
+    sections.forEach(s => { P.sectionStarts.push(acc); acc += s.lines.length; });
     P.idx = Math.min(note.pos || 0, Math.max(0, units.length - 1));
     P.repeatsLeft = settings.repeat;
     $('#np-title').textContent = note.title;
     $('#seek').max = Math.max(0, units.length - 1);
     renderReader();
+    renderThemes();
     $('#player').hidden = false;
     updateProgress();
     highlight();
+  }
+
+  function renderThemes() {
+    const sel = $('#theme-jump');
+    sel.innerHTML = '';
+    P.sections.forEach((sec, si) => {
+      let name = (sec.title || (sec.lines[0] && sec.lines[0].text) || 'Section')
+        .replace(/^#+\s*/, '').replace(/[.:]\s*$/, '').trim();
+      if (name.length > 55) name = name.slice(0, 55) + '…';
+      const o = document.createElement('option');
+      o.value = P.sectionStarts[si];
+      o.textContent = `T${si + 1}: ${name}`;
+      sel.appendChild(o);
+    });
   }
 
   function renderReader() {
@@ -474,6 +492,8 @@
       c.classList.toggle('active', +c.dataset.chunk === secIdx);
       c.classList.toggle('done', +c.dataset.chunk < secIdx);
     });
+    const tj = $('#theme-jump');
+    if (tj && P.sectionStarts && P.sectionStarts[secIdx] != null) tj.value = P.sectionStarts[secIdx];
   }
 
   function updateProgress() {
@@ -520,7 +540,23 @@
   $('#prev').addEventListener('click', prev);
   $('#seek').addEventListener('input', e => { P.idx = +e.target.value; P.repeatsLeft = settings.repeat; highlight(); updateProgress(); if (P.playing) play(); });
   $('#player-close').addEventListener('click', () => { stopSpeech(); $('#player').hidden = true; renderLibrary($('#search').value); });
-  $('#player-expand').addEventListener('click', () => { $('#player').classList.toggle('expanded'); highlight(); });
+
+  // Theme jump — go to the chosen section and start playing there
+  $('#theme-jump').addEventListener('change', e => {
+    P.idx = +e.target.value;
+    P.repeatsLeft = settings.repeat;
+    play();
+  });
+
+  // Read-along panel toggle
+  function toggleReadAlong() {
+    const on = $('#player').classList.toggle('expanded');
+    $('#readalong').classList.toggle('active', on);
+    $('#readalong2').classList.toggle('active', on);
+    highlight();
+  }
+  $('#readalong').addEventListener('click', toggleReadAlong);
+  $('#readalong2').addEventListener('click', toggleReadAlong);
 
   const SPEEDS = [0.5, 0.75, 1.0, 1.1, 1.25, 1.4, 1.5, 1.75, 2.0];
   const fmtRate = r => (+r).toString().replace(/\.0$/, '') + '×';

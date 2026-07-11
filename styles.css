@@ -164,6 +164,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 10
 .reader .r-chunk.active { color: var(--text); }
 
 .controls { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.theme-row { display: flex; gap: 8px; align-items: center; }
+.theme-jump { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600;
+  max-width: 100%; text-overflow: ellipsis; }
+.readalong-btn { white-space: nowrap; }
+.readalong-btn.active, #readalong.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#readalong.active { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 #seek { width: 100%; accent-color: var(--accent-2); }
 .btn-row { display: flex; align-items: center; justify-content: center; gap: 22px; }
 .ctrl { background: none; border: none; color: var(--text); font-size: 22px; cursor: pointer;

@@ -180,28 +180,39 @@
   //  line's own "label: detail" or "label — detail" shape (a pattern most
   //  structured revision notes already use) turns it into a Q&A card.
   // ===================================================================
-  function splitFrontBack(line) {
-    let m = line.match(/^(.{2,60}?):\s+(.+)$/);
-    if (m) return { front: m[1].trim(), back: m[2].trim() };
-    m = line.match(/^(.{2,60}?)\s+[—-]\s+(.+)$/);
-    if (m) return { front: m[1].trim(), back: m[2].trim() };
-    m = line.match(/^([^.!?]{2,80}[.!?])\s+(.+)$/);
-    if (m) return { front: m[1].trim(), back: m[2].trim() };
-    return { front: line, back: '' };
+  const wc = s => s.split(/\s+/).filter(Boolean).length;
+  // Strip leading discourse/filler so cards carry mostly signal.
+  const FILLER = /^(moreover|furthermore|in addition|additionally|however|therefore|thus|hence|indeed|of course|that said|basically|essentially|in other words|as such|as we know|needless to say|it is (important|worth noting)( to note)? that|note that|remember that|clearly|notably|importantly),?\s+/i;
+  const deFiller = s => { const t = s.replace(FILLER, ''); return t ? t[0].toUpperCase() + t.slice(1) : t; };
+  // Extract the salient terms of a passage for the flip side (active recall cue).
+  function keyLine(text) {
+    const set = new Set();
+    (text.match(/Articles?\s+\d+[A-Za-z()]*|\b(1[5-9]\d{2}|20\d{2})\b/g) || []).forEach(t => set.add(t.trim()));
+    (text.match(/\b[A-Z][a-zA-Z.'-]{2,}(?:\s+[A-Z][a-zA-Z.'-]{2,}){0,3}\b/g) || [])
+      .forEach(t => { if (!/^(The|This|That|These|Those|It|In|As|For|And|But|On|Of|To|A|An|Its|Their|Each|First|Second|Third|Moreover|However|Therefore|Thus|Hence|Furthermore|Indeed|Additionally)$/.test(t.split(' ')[0])) set.add(t); });
+    const terms = [...set].slice(0, 8);
+    return terms.length ? terms.join('  ·  ') : '';
   }
+  // Group each theme's content into swipeable cards of >= MIN_WORDS words.
+  // Front = the condensed content (fillers trimmed); back = its key terms.
   function buildFlashcards(note) {
+    const MIN_WORDS = 50;
     const chunks = parseChunks(note.text, note.mode);
     const cards = [];
     chunks.forEach(c => {
       const theme = cleanTitle(c.head || c.title || '');
       if (theme) cards.push({ kind: 'divider', theme, front: theme, back: '' });
-      (c.body || []).forEach(line => {
-        const t = line.trim();
-        if (!t) return;
-        if (/^H[1-3]\b/i.test(t)) { cards.push({ kind: 'subhead', theme, front: t, back: '' }); return; }
-        const { front, back } = splitFrontBack(t);
-        cards.push({ kind: 'card', theme, front, back });
-      });
+      const sentences = [];
+      (c.body || []).forEach(line => splitSentences(line.trim()).forEach(s => { const t = deFiller(s.trim()); if (t) sentences.push(t); }));
+      let buf = [], words = 0;
+      const flush = () => { if (buf.length) { const text = buf.join(' '); cards.push({ kind: 'card', theme, front: text, back: keyLine(text) }); buf = []; words = 0; } };
+      sentences.forEach(s => { buf.push(s); words += wc(s); if (words >= MIN_WORDS) flush(); });
+      // Fold a short leftover into the previous card so no card is thin.
+      if (buf.length) {
+        const text = buf.join(' '), prev = cards[cards.length - 1];
+        if (wc(text) < MIN_WORDS / 2 && prev && prev.kind === 'card') { prev.front += ' ' + text; prev.back = keyLine(prev.front); }
+        else cards.push({ kind: 'card', theme, front: text, back: keyLine(text) });
+      }
     });
     return cards;
   }

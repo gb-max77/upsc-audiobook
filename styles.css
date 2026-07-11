@@ -24,6 +24,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* overlays (player, flashcards) must truly hide */
 html, body { margin: 0; height: 100%; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -98,15 +99,16 @@ main { max-width: 820px; margin: 0 auto; padding: 16px; }
 .fc-card { position: relative; width: 100%; max-width: 480px; height: min(60vh, 420px);
   perspective: 1200px; cursor: pointer; }
 .fc-face { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  text-align: center; padding: 32px; border-radius: 20px; font-size: 22px; font-weight: 700; line-height: 1.5;
+  text-align: left; padding: 26px; border-radius: 20px; font-size: 17.5px; font-weight: 500; line-height: 1.62;
   background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow);
   backface-visibility: hidden; transition: transform .45s cubic-bezier(.4,.2,.2,1); overflow-y: auto; }
 .fc-front { transform: rotateY(0deg); color: var(--text); }
-.fc-back { transform: rotateY(180deg); color: var(--accent-2); font-weight: 600; font-size: 19px; }
+.fc-back { transform: rotateY(180deg); color: var(--accent-2); font-weight: 600; font-size: 18px;
+  align-items: flex-start; text-align: left; }
+.fc-card.kind-card .fc-front { align-items: flex-start; }   /* long content reads from the top */
 .fc-card.flipped .fc-front { transform: rotateY(-180deg); }
 .fc-card.flipped .fc-back { transform: rotateY(0deg); }
 .fc-card.kind-divider .fc-front { background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff; font-size: 26px; }
-.fc-card.kind-subhead .fc-front { background: var(--surface-2); color: var(--accent); font-size: 19px; font-weight: 800; }
 .fc-card.kind-end .fc-front { background: var(--surface); color: var(--text); }
 .fc-hint { text-align: center; font-size: 12px; color: var(--muted); margin: 0 0 12px; }
 .fc-actions { display: flex; gap: 12px; }

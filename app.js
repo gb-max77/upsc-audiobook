@@ -10,10 +10,10 @@
   };
 
   // ---------- State ----------
-  let notes = store.get('notes', []);   // [{id,title,text,mode,memoFlow,created,pos}]
+  let notes = store.get('notes', []);   // [{id,title,text,mode,created,pos}]
   let settings = Object.assign({
     voiceURI: '', rate: 1, pitch: 1, repeat: 1, gap: 0.4, loop: false,
-    numberPoints: true, expandAbbr: true, recap: true, recall: false,
+    expandAbbr: true, pauses: true,
   }, store.get('settings', {}));
   let editingId = null;
 
@@ -64,8 +64,8 @@
       const boundary = themed ? !!tm : isHeading(line);
       if (boundary) {
         if (cur) chunks.push(cur);
-        if (tm) cur = { title: (tm[2] || '').trim() || ('Theme ' + tm[1]), themeNo: +tm[1], body: [] };
-        else cur = { title: t.replace(/^#{1,6}\s*/, '').trim(), body: [] };
+        if (tm) cur = { title: (tm[2] || '').trim() || ('Theme ' + tm[1]), themeNo: +tm[1], head: t, body: [] };
+        else { const h = t.replace(/^#{1,6}\s*/, '').trim(); cur = { title: h, head: h, body: [] }; }
       } else { if (!cur) cur = { body: [] }; cur.body.push(stripBullet(t)); }
     }
     if (cur) chunks.push(cur);
@@ -99,38 +99,7 @@
     return s.replace(/\s{2,}/g, ' ');
   }
 
-  const ORD = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth', 'Eleventh', 'Twelfth'];
-  const ordinal = n => ORD[n - 1] || ('Point ' + n);
   const cleanTitle = t => (t || '').replace(/^#{1,6}\s*/, '').replace(/[\s:.\-–—]+$/, '').trim();
-  function ensureSentence(s) {
-    s = stripBullet(String(s).trim());
-    if (!s) return s;
-    s = s[0].toUpperCase() + s.slice(1);
-    if (!/[.!?]["')\]]?$/.test(s)) s += '.';
-    return s;
-  }
-  const STOP = /^(The|This|That|These|Those|Part|It|In|As|For|And|But|Its|Their|Such|Under|With|First|Second|Third|Also|They|Here|There|When|While|Both|Each|Every|All)$/;
-  function keyTerms(text) {
-    const set = new Set();
-    (text.match(/Articles?\s+\d+[A-Z]?/gi) || [])
-      .forEach(t => set.add(t.replace(/\s+/, ' ').replace(/^Articles/i, 'Article')));
-    // Strip Article-numbers so the proper-noun pass can't fuse with them.
-    const rest = text.replace(/Articles?\s+\d+[A-Z]?/gi, ' ');
-    (rest.match(/\b(1[5-9]\d{2}|20\d{2})\b/g) || []).forEach(t => set.add(t));
-    (rest.match(/\b[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{2,}){0,2}\b/g) || [])
-      .forEach(t => { if (!STOP.test(t.split(' ')[0]) && !/^Articles?$/i.test(t)) set.add(t); });
-    return [...set].slice(0, 6);
-  }
-  // Note: avoid words that double as common nouns in notes (state, hold, form, mark, cover, set).
-  const VERB = /\b(is|are|was|were|means?|refers?|denotes?|guarantees?|provides?|contains?|includes?|comprises?|consists?|deals?|defines?|prohibits?|ensures?|establishes?|grants?|empowers?|enables?|requires?|allows?|protects?|applies|gives?|began|occurred|signed|abolishes?|creates?|has|have|had)\b/i;
-  function subjectOf(s) {
-    const m = s.match(VERB);
-    let subj = m ? s.slice(0, m.index) : s.split(/\s+/).slice(0, 4).join(' ');
-    subj = subj.replace(/[,;:.\s]+$/, '').trim();
-    if (/^(it|they|these|those|this|that|he|she|we|there|such|both|all)$/i.test(subj)) return '';
-    const words = subj.split(/\s+/).filter(Boolean).length;
-    return (subj.length >= 3 && words >= 1 && words <= 8) ? subj : '';
-  }
 
   // ---- Number / year / legal-clause narration (applied to SPOKEN text only) ----
   const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
@@ -162,9 +131,12 @@
     if (/^[ivxlcdm]+$/i.test(inner)) { const r = romanToNum(inner); if (r) return numToWords(r); }
     return inner;
   }
-  // "Article 19(1)(a)" → "Article nineteen one A"; "1950" → "nineteen fifty"
+  // Audio-only enrichment: the note's text is unchanged on screen; this shapes
+  // only what the voice says. "Article 19(1)(a)" → "Article nineteen one A",
+  // "1950" → "nineteen fifty", and (optionally) abbreviations spoken in full.
   function speakify(text) {
-    let s = text.replace(/\bArts?\.?\s*(?=\d)/gi, m => /arts/i.test(m) ? 'Articles ' : 'Article ');
+    let s = settings.expandAbbr !== false ? expandAbbr(text) : text;
+    s = s.replace(/\bArts?\.?\s*(?=\d)/gi, m => /arts/i.test(m) ? 'Articles ' : 'Article ');
     s = s.replace(/\bArticles?\s+(\d+)([A-Za-z])?((?:\s*\([0-9A-Za-z]+\))*)/g, (m, num, letter, clauses) => {
       let out = (/\bArticles\b/i.test(m) ? 'Articles ' : 'Article ') + numToWords(num);
       if (letter) out += ' ' + letter.toUpperCase();
@@ -176,44 +148,25 @@
   }
 
   // Build the flat list of spoken "units" + section structure for a note.
-  // Returns { sections:[{title,ci,lines:[{text,kind}]}], units:[{text,sectionIdx,kind}] }
+  // FAITHFUL to the note: every unit's text is content that appears in the note.
+  // The "Intelligent Reader" only enriches HOW these are spoken (pauses via
+  // pauseExtra, pronunciation via speakify) — it never adds or rewrites text.
   function buildUnits(note) {
     const chunks = parseChunks(note.text, note.mode);
-    const memo = !!note.memoFlow;
-    const o = settings;
+    const pauses = settings.pauses !== false;
     const sections = [];
     chunks.forEach((c, ci) => {
-      const title = cleanTitle(c.title || '');
-      const facts = [];
-      (c.body || []).forEach(line => {
-        const src = memo && o.expandAbbr ? expandAbbr(line) : line;
-        splitSentences(src).forEach(s => { if (s.trim()) facts.push(s.trim()); });
-      });
       const lines = [];
-      const push = (text, kind, pauseExtra = 0) => lines.push({ text, kind, pauseExtra });
-      const headText = c.themeNo != null ? `Theme ${c.themeNo}: ${title}` : title;
-      if (!memo) {
-        if (title) push(headText, 'head', 0.7);
-        facts.forEach(f => push(f, 'plain', isDefinition(f) ? 0.25 : 0));
-      } else {
-        if (title) push(headText, 'head', 0.7);
-        const numbered = o.numberPoints && facts.length > 1 && !o.recall;
-        facts.forEach((f, k) => {
-          const fact = ensureSentence(f);
-          if (o.recall) {
-            const cue = subjectOf(fact);
-            if (cue) push(cue + '?', 'question', 1.1);   // pause to let the learner recall
-            push(fact, 'answer', 0.15);
-          } else {
-            push((numbered ? ordinal(k + 1) + ', ' : '') + fact, 'point', isDefinition(fact) ? 0.25 : 0);
-          }
+      const push = (text, kind, pauseExtra = 0) => lines.push({ text, kind, pauseExtra: pauses ? pauseExtra : 0 });
+      const headText = c.head || cleanTitle(c.title || '');
+      if (headText) push(headText, 'head', 0.7);          // a beat after a theme/heading
+      (c.body || []).forEach(line => {
+        splitSentences(line).forEach(s => {
+          const t = s.trim();
+          if (t) push(t, 'point', isDefinition(t) ? 0.2 : 0);
         });
-        if (o.recap) {
-          const kt = keyTerms(facts.join(' '));
-          if (kt.length) push(`Key terms to remember. ${kt.join(', ')}.`, 'recap', 0.5);
-        }
-      }
-      if (lines.length) sections.push({ title, ci, themeNo: c.themeNo, lines });
+      });
+      if (lines.length) sections.push({ title: cleanTitle(c.title || ''), ci, themeNo: c.themeNo, lines });
     });
     const units = [];
     sections.forEach((s, si) => s.lines.forEach(l => units.push({ text: l.text, sectionIdx: si, kind: l.kind, pauseExtra: l.pauseExtra || 0 })));
@@ -309,6 +262,8 @@
     $('#library-empty').classList.toggle('show', notes.length === 0);
     items.forEach(n => {
       const { sections, units } = buildUnits(n);
+      const explicit = sections.some(s => s.themeNo != null);
+      const themeCount = explicit ? sections.filter(s => s.themeNo != null).length : sections.length;
       const total = units.length || 1;
       const pct = Math.min(100, Math.round(((n.pos || 0) / total) * 100));
       const el = document.createElement('div');
@@ -320,7 +275,7 @@
         </div>
         <h3></h3>
         <div class="snippet"></div>
-        <div class="meta">${sections.length} sections · ${units.length} lines${n.memoFlow ? ' · 🧠 flow' : ''} · ${pct}% done</div>
+        <div class="meta">${themeCount} ${themeCount === 1 ? 'theme' : 'themes'} · ${units.length} lines · ${pct}% done</div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         <button class="btn primary play-btn">▶ Play audiobook</button>`;
       el.querySelector('h3').textContent = n.title || 'Untitled';
@@ -349,7 +304,6 @@
     $('#note-title').value = '';
     $('#note-text').value = '';
     $('#chunk-mode').value = 'heading';
-    $('#memo-flow').checked = true;
     renderPreview();
   }
   function startEdit(n) {
@@ -359,11 +313,10 @@
     $('#note-title').value = n.title;
     $('#note-text').value = n.text;
     $('#chunk-mode').value = n.mode || 'paragraph';
-    $('#memo-flow').checked = n.memoFlow !== false;
     renderPreview();
     showView('add');
   }
-  const KIND_LABEL = { head: 'THEME', plain: 'point', point: 'point', question: 'recall Q', answer: 'answer', recap: 'recap' };
+  const KIND_LABEL = { head: 'theme', point: 'read' };
   function estimateSeconds(units) {
     let sec = 0;
     units.forEach(u => {
@@ -380,7 +333,7 @@
     const text = $('#note-text').value;
     // If the notes name their own themes, segment by them automatically.
     if (hasExplicitThemes(text) && $('#chunk-mode').value !== 'heading') $('#chunk-mode').value = 'heading';
-    const note = { text, mode: $('#chunk-mode').value, memoFlow: $('#memo-flow').checked };
+    const note = { text, mode: $('#chunk-mode').value };
     const { sections, units } = buildUnits(note);
 
     const explicit = sections.some(s => s.themeNo != null);
@@ -397,7 +350,7 @@
     // Theme chips — only the explicit THEMEs when the note names them
     const themes = $('#ir-themes'); themes.innerHTML = '';
     themeList.forEach((s, i) => {
-      const pts = s.lines.filter(l => ['point', 'plain', 'answer'].includes(l.kind)).length;
+      const pts = s.lines.filter(l => l.kind === 'point').length;
       const no = s.themeNo != null ? s.themeNo : (i + 1);
       const chip = document.createElement('span');
       chip.className = 'ir-theme' + (s.themeNo != null ? ' matched' : '');
@@ -410,7 +363,7 @@
     units.slice(0, 14).forEach(u => {
       const row = document.createElement('div');
       row.className = 'ir-line k-' + u.kind;
-      const pause = u.pauseExtra >= 0.7 ? '⏸⏸' : u.pauseExtra >= 0.25 ? '⏸' : '';
+      const pause = u.pauseExtra >= 0.7 ? '⏸⏸' : u.pauseExtra >= 0.2 ? '⏸' : '';
       row.innerHTML = `<span class="ir-kind">${KIND_LABEL[u.kind] || u.kind}</span>` +
         `<span class="ir-text"></span><span class="ir-pause">${pause}</span>`;
       row.querySelector('.ir-text').textContent = speakify(u.text);
@@ -425,7 +378,6 @@
   }
   $('#note-text').addEventListener('input', renderPreview);
   $('#chunk-mode').addEventListener('change', renderPreview);
-  $('#memo-flow').addEventListener('change', renderPreview);
 
   $('#file-input').addEventListener('change', async e => {
     const f = e.target.files[0];
@@ -448,15 +400,15 @@
     const title = $('#note-title').value.trim();
     const text = $('#note-text').value.trim();
     const mode = $('#chunk-mode').value;
-    const memoFlow = $('#memo-flow').checked;
     if (!text) { alert('Please paste or import some notes first.'); return; }
-    if (editingId) {
-      const n = notes.find(x => x.id === editingId);
-      Object.assign(n, { title: title || n.title, text, mode, memoFlow, pos: 0 }); // content changed → restart
+    const editing = editingId && notes.find(x => x.id === editingId);
+    if (editing) {
+      const n = editing;
+      Object.assign(n, { title: title || n.title, text, mode, pos: 0 }); // content changed → restart
       // if the player is open on this note, rebuild it live so the audiobook matches
       if (P.note && P.note.id === n.id && !$('#player').hidden) openPlayer(n);
     } else {
-      notes.push({ id: Date.now().toString(36), title: title || 'Untitled', text, mode, memoFlow, created: Date.now(), pos: 0 });
+      notes.push({ id: Date.now().toString(36), title: title || 'Untitled', text, mode, created: Date.now(), pos: 0 });
     }
     store.set('notes', notes);
     startNew();          // refresh the Add page after saving
@@ -510,8 +462,8 @@
   }
 
   function renderThemes() {
-    const sel = $('#theme-jump');
-    sel.innerHTML = '';
+    const sel = $('#theme-jump'), dots = $('#theme-dots');
+    sel.innerHTML = ''; dots.innerHTML = '';
     P.themeStarts = [];
     const themed = P.sections.some(s => s.themeNo != null);
     P.sections.forEach((sec, si) => {
@@ -525,9 +477,17 @@
       o.textContent = `T${no}: ${name}`;
       sel.appendChild(o);
       P.themeStarts.push(P.sectionStarts[si]);
+      // Progress dot — a visual "you are here" cue across the whole audiobook,
+      // which helps spaced-recall by anchoring content to its position.
+      const dot = document.createElement('span');
+      dot.className = 'tdot'; dot.dataset.start = P.sectionStarts[si]; dot.title = `T${no}: ${name}`;
+      dot.addEventListener('click', () => { P.idx = +dot.dataset.start; P.repeatsLeft = settings.repeat; play(); });
+      dots.appendChild(dot);
     });
-    // Hide the jump control when there's nothing meaningful to jump between.
-    sel.style.display = sel.options.length > 1 ? '' : 'none';
+    // Hide controls when there's nothing meaningful to jump between.
+    const multi = sel.options.length > 1;
+    sel.style.display = multi ? '' : 'none';
+    dots.style.display = multi ? '' : 'none';
   }
 
   function renderReader() {
@@ -567,7 +527,13 @@
     if (tj && P.themeStarts && P.themeStarts.length) {
       let v = null;
       for (const s of P.themeStarts) { if (s <= P.idx) v = s; else break; }
-      if (v != null) tj.value = String(v);
+      if (v != null) {
+        tj.value = String(v);
+        $$('.tdot').forEach(d => {
+          d.classList.toggle('current', +d.dataset.start === v);
+          d.classList.toggle('done', +d.dataset.start < v);
+        });
+      }
     }
   }
 
@@ -669,8 +635,8 @@
   function syncSettingsUI() {
     $('#rate').value = settings.rate; $('#pitch').value = settings.pitch;
     $('#repeat').value = settings.repeat; $('#gap').value = settings.gap; $('#loop').checked = settings.loop;
-    $('#opt-number').checked = settings.numberPoints; $('#opt-abbr').checked = settings.expandAbbr;
-    $('#opt-recap').checked = settings.recap; $('#opt-recall').checked = settings.recall;
+    $('#opt-abbr').checked = settings.expandAbbr !== false;
+    $('#opt-pauses').checked = settings.pauses !== false;
     $('#rate-out').textContent = fmtRate(settings.rate);
     $('#pitch-out').textContent = settings.pitch.toFixed(2);
     $('#repeat-out').textContent = settings.repeat + '×';
@@ -685,8 +651,7 @@
   $('#gap').addEventListener('input', e => { settings.gap = +e.target.value; saveS(); syncSettingsUI(); });
   $('#loop').addEventListener('change', e => { settings.loop = e.target.checked; saveS(); });
   const flowOpt = (id, key) => $(id).addEventListener('change', e => { settings[key] = e.target.checked; saveS(); renderPreview(); });
-  flowOpt('#opt-number', 'numberPoints'); flowOpt('#opt-abbr', 'expandAbbr');
-  flowOpt('#opt-recap', 'recap'); flowOpt('#opt-recall', 'recall');
+  flowOpt('#opt-abbr', 'expandAbbr'); flowOpt('#opt-pauses', 'pauses');
   $('#test-voice').addEventListener('click', () => {
     synth.cancel();
     const u = new SpeechSynthesisUtterance('This is how your UPSC revision audio will sound.');

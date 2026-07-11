@@ -1,4 +1,4 @@
-# 🎧 ShrutiUPSC — Notes to Audio
+# 🎧 Gandhari — Notes to Audio
 
 Turn your UPSC notes into revision audio for hands-free memorisation. Paste or
 import notes, and the app reads them aloud sentence-by-sentence with

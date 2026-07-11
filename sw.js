@@ -1,5 +1,5 @@
 /* Offline cache — app shell only (notes live in localStorage) */
-const CACHE = 'shruti-upsc-v7';
+const CACHE = 'gandhari-v1';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon.svg'];
 
 self.addEventListener('install', e => {

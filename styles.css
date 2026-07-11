@@ -129,8 +129,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 10
 .ir-pause { color: var(--accent-2); font-size: 11px; }
 .ir-line.k-head .ir-text { font-weight: 800; }
 .ir-line.k-head .ir-kind { color: var(--accent); }
-.ir-line.k-recap .ir-text { font-style: italic; color: var(--accent-2); }
-.ir-line.k-question .ir-text { font-weight: 700; color: var(--accent); }
 .hint { margin: -6px 0 2px; font-size: 12px; color: var(--muted); font-weight: 500; }
 .check.memo { align-items: flex-start; background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 10px; padding: 12px; line-height: 1.45; }
@@ -163,20 +161,29 @@ hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 10
   padding: 6px 8px; border-radius: 8px; }
 .icon-btn:hover { color: var(--text); background: var(--surface-2); }
 
+/* Progress dots: an at-a-glance map of the whole audiobook, aiding recall of
+   "where" a fact sits — position is itself a memory cue (method-of-loci-lite). */
+.theme-dots { display: flex; gap: 5px; padding: 8px 0 0; flex-wrap: wrap; }
+.tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); cursor: pointer;
+  transition: transform .15s, background .15s; }
+.tdot:hover { transform: scale(1.3); }
+.tdot.done { background: var(--accent-2); }
+.tdot.current { background: var(--accent); transform: scale(1.45); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+
 .reader { display: none; max-height: 42vh; overflow-y: auto; margin: 12px 0; padding: 4px 2px;
-  line-height: 1.85; font-size: 17px; }
+  line-height: 1.9; font-size: 18px; }
 .player.expanded .reader { display: block; }
-.reader .r-chunk { margin: 0 0 14px; color: var(--muted); transition: color .2s; }
-.reader .r-chunk.done { color: color-mix(in srgb, var(--text) 70%, var(--muted)); }
-.reader .r-sentence { cursor: pointer; padding: 1px 2px; border-radius: 4px; }
-.reader .r-sentence.current { background: var(--highlight); color: var(--highlight-text); font-weight: 600; }
-.reader .k-head { display: block; font-weight: 800; color: var(--text); letter-spacing: .4px; margin-bottom: 6px; font-size: 1.02em; }
-.reader .k-recap { display: block; margin-top: 8px; font-style: italic; color: var(--accent-2); font-size: .92em; }
-.reader .k-question { display: block; font-weight: 700; color: var(--accent); margin-top: 6px; }
-.reader .k-question::before { content: '❓ '; }
-.reader .k-answer { color: var(--text); }
-.reader .k-point { color: var(--text); }
-.reader .r-chunk.active { color: var(--text); }
+/* Focus mode: dim everything except the theme currently playing, so the ear
+   and eye lock onto one idea at a time — reduces cognitive load while revising. */
+.reader .r-chunk { margin: 0 0 16px; color: var(--muted); opacity: .55; transition: opacity .3s, color .3s; }
+.reader .r-chunk.done { color: color-mix(in srgb, var(--text) 65%, var(--muted)); opacity: .75; }
+.reader .r-chunk.active { color: var(--text); opacity: 1; }
+.reader .r-sentence { cursor: pointer; padding: 2px 3px; border-radius: 5px; }
+.reader .r-sentence.current { background: var(--highlight); color: var(--highlight-text); font-weight: 700;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--highlight) 35%, transparent); }
+.reader .k-head { display: block; font-weight: 800; color: var(--text); letter-spacing: .3px;
+  margin-bottom: 8px; font-size: 1.12em; opacity: 1; }
+.reader .r-chunk .k-head.current { box-shadow: none; }
 
 .controls { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .theme-row { display: flex; gap: 8px; align-items: center; }

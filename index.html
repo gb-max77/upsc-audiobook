@@ -57,8 +57,8 @@
               <option value="line">Each line</option>
             </select>
           </label>
-          <label class="file-btn">Import .txt / .docx
-            <input id="file-input" type="file" accept=".txt,.md,.text,.docx" hidden />
+          <label class="file-btn">Import .txt / .docx / .pdf
+            <input id="file-input" type="file" accept=".txt,.md,.text,.docx,.pdf" hidden />
           </label>
         </div>
 
@@ -168,6 +168,29 @@ Article 14 guarantees equality before law…"></textarea>
           </select>
         </label>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ FLASHCARDS (swipe deck) ============ -->
+  <div id="flashcards" class="flashcards" hidden>
+    <div class="fc-top">
+      <button id="fc-close" class="icon-btn" title="Close">✕</button>
+      <div class="fc-info">
+        <strong id="fc-theme">—</strong>
+        <span id="fc-progress">0 / 0</span>
+      </div>
+      <span class="fc-known" id="fc-known-count" title="Cards mastered this round">✅ 0</span>
+    </div>
+    <div class="fc-stage" id="fc-stage">
+      <div class="fc-card" id="fc-card">
+        <div class="fc-face fc-front" id="fc-front"></div>
+        <div class="fc-face fc-back" id="fc-back"></div>
+      </div>
+    </div>
+    <p class="fc-hint">Tap to flip · swipe up for next · swipe down to go back</p>
+    <div class="fc-actions">
+      <button id="fc-again" class="btn ghost fc-btn">🔁 Again</button>
+      <button id="fc-known" class="btn primary fc-btn">✅ Got it</button>
     </div>
   </div>
 

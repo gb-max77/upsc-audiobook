@@ -31,7 +31,7 @@
 
   // Explicit THEME markers written in the notes, e.g.
   // "THEME 4: Colonial Land Revenue", "Theme 4 - Land Revenue", "T4: …".
-  const THEME_RE = /^(?:theme|t)\s*(\d+)\s*[:.)\-–—]\s*(.*)$/i;
+  const THEME_RE = /^(?:theme|t)\s*(\d+)\s*[:.)\-–—·]\s*(.*)$/i;
 
   function isHeading(line) {
     const t = line.trim();
@@ -175,12 +175,74 @@
   const isDefinition = s => /\b(is|are|means?|refers?\s+to|defined\s+as|denotes?)\b/i.test(s);
 
   // ===================================================================
+  //  FLASHCARDS — faithful to the note: each card's front/back text is a
+  //  verbatim split of one line/bullet, not a rewrite. Splitting on the
+  //  line's own "label: detail" or "label — detail" shape (a pattern most
+  //  structured revision notes already use) turns it into a Q&A card.
+  // ===================================================================
+  function splitFrontBack(line) {
+    let m = line.match(/^(.{2,60}?):\s+(.+)$/);
+    if (m) return { front: m[1].trim(), back: m[2].trim() };
+    m = line.match(/^(.{2,60}?)\s+[—-]\s+(.+)$/);
+    if (m) return { front: m[1].trim(), back: m[2].trim() };
+    m = line.match(/^([^.!?]{2,80}[.!?])\s+(.+)$/);
+    if (m) return { front: m[1].trim(), back: m[2].trim() };
+    return { front: line, back: '' };
+  }
+  function buildFlashcards(note) {
+    const chunks = parseChunks(note.text, note.mode);
+    const cards = [];
+    chunks.forEach(c => {
+      const theme = cleanTitle(c.head || c.title || '');
+      if (theme) cards.push({ kind: 'divider', theme, front: theme, back: '' });
+      (c.body || []).forEach(line => {
+        const t = line.trim();
+        if (!t) return;
+        if (/^H[1-3]\b/i.test(t)) { cards.push({ kind: 'subhead', theme, front: t, back: '' }); return; }
+        const { front, back } = splitFrontBack(t);
+        cards.push({ kind: 'card', theme, front, back });
+      });
+    });
+    return cards;
+  }
+
+  // ===================================================================
   //  DOCX IMPORT (in-browser, no library: native DecompressionStream)
   // ===================================================================
   async function readDocx(file) {
     const buf = new Uint8Array(await file.arrayBuffer());
     const xml = await extractZipEntry(buf, 'word/document.xml');
     return docXmlToText(xml);
+  }
+
+  // ---------- PDF IMPORT (pdf.js, vendored locally, lazy-loaded on first use) ----------
+  let pdfjsLib = null;
+  async function loadPdfJs() {
+    if (pdfjsLib) return pdfjsLib;
+    pdfjsLib = await import('./vendor/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.mjs';
+    return pdfjsLib;
+  }
+  async function readPdf(file) {
+    const lib = await loadPdfJs();
+    const doc = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pages = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      // Reconstruct reading-order lines from positioned text items (group by row).
+      const rows = [];
+      content.items.forEach(it => {
+        const y = Math.round(it.transform[5]);
+        let row = rows.find(r => Math.abs(r.y - y) <= 3);
+        if (!row) { row = { y, parts: [] }; rows.push(row); }
+        row.parts.push({ x: it.transform[4], s: it.str });
+      });
+      rows.sort((a, b) => b.y - a.y);
+      pages.push(rows.map(r => r.parts.sort((a, b) => a.x - b.x).map(p => p.s).join(' ').replace(/\s+/g, ' ').trim())
+        .filter(Boolean).join('\n'));
+    }
+    return pages.join('\n\n');
   }
   async function extractZipEntry(buf, wanted) {
     const dv = new DataView(buf.buffer);
@@ -277,10 +339,14 @@
         <div class="snippet"></div>
         <div class="meta">${themeCount} ${themeCount === 1 ? 'theme' : 'themes'} · ${units.length} lines · ${pct}% done</div>
         <div class="bar"><i style="width:${pct}%"></i></div>
-        <button class="btn primary play-btn">▶ Play audiobook</button>`;
+        <div class="card-row">
+          <button class="btn primary play-btn">▶ Play audiobook</button>
+          <button class="btn ghost cards-btn" title="Revise as swipe flashcards">🗂 Flashcards</button>
+        </div>`;
       el.querySelector('h3').textContent = n.title || 'Untitled';
       el.querySelector('.snippet').textContent = n.text.slice(0, 160);
       el.querySelector('.play-btn').addEventListener('click', ev => { ev.stopPropagation(); openPlayer(n); });
+      el.querySelector('.cards-btn').addEventListener('click', ev => { ev.stopPropagation(); openFlashcards(n); });
       el.addEventListener('click', () => openPlayer(n));
       el.querySelector('.edit').addEventListener('click', ev => { ev.stopPropagation(); startEdit(n); });
       el.querySelector('.del').addEventListener('click', ev => {
@@ -383,7 +449,9 @@
     const f = e.target.files[0];
     if (!f) return;
     try {
-      const text = /\.docx$/i.test(f.name) ? await readDocx(f) : await f.text();
+      const text = /\.docx$/i.test(f.name) ? await readDocx(f)
+        : /\.pdf$/i.test(f.name) ? await readPdf(f)
+        : await f.text();
       if (!text.trim()) throw new Error('no readable text found');
       $('#note-text').value = text;
       if (!$('#note-title').value) $('#note-title').value = f.name.replace(/\.[^.]+$/, '');
@@ -662,12 +730,93 @@
 
   // ---------- Keyboard ----------
   document.addEventListener('keydown', e => {
-    if ($('#player').hidden) return;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    if (!$('#flashcards').hidden) {
+      if (e.code === 'Space') { e.preventDefault(); flipCard(); }
+      else if (e.code === 'ArrowUp' || e.code === 'ArrowRight') goNext();
+      else if (e.code === 'ArrowDown' || e.code === 'ArrowLeft') goPrev();
+      return;
+    }
+    if ($('#player').hidden) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.code === 'ArrowRight') next();
     else if (e.code === 'ArrowLeft') prev();
   });
+
+  // ===================================================================
+  //  FLASHCARDS — swipeable revision deck (reels-style)
+  // ===================================================================
+  const F = { note: null, cards: [], order: [], pos: 0, known: 0, again: [] };
+
+  function openFlashcards(note) {
+    F.note = note;
+    F.cards = buildFlashcards(note);
+    F.order = F.cards.map((_, i) => i);
+    F.pos = 0; F.known = 0; F.again = [];
+    $('#flashcards').hidden = false;
+    renderCard();
+  }
+  const currentCard = () => F.cards[F.order[F.pos]];
+  function renderCard() {
+    const card = $('#fc-card');
+    const c = currentCard();
+    card.classList.remove('flipped');
+    if (!c) {
+      $('#fc-theme').textContent = 'Round complete';
+      $('#fc-front').textContent = `🎉 ${F.known} mastered this round.` + (F.order.length ? ' Tap ✕ to finish, or reopen to go again.' : '');
+      $('#fc-back').textContent = ''; $('#fc-back').style.display = 'none';
+      card.className = 'fc-card kind-end';
+      $('#fc-progress').textContent = `${F.order.length} / ${F.order.length}`;
+      return;
+    }
+    $('#fc-theme').textContent = c.theme || '';
+    $('#fc-progress').textContent = `${F.pos + 1} / ${F.order.length}`;
+    $('#fc-known-count').textContent = `✅ ${F.known}`;
+    $('#fc-front').textContent = c.front;
+    $('#fc-back').textContent = c.back;
+    $('#fc-back').style.display = c.back ? '' : 'none';
+    card.className = 'fc-card kind-' + c.kind;
+  }
+  function flipCard() {
+    const c = currentCard();
+    if (!c || !c.back) return;
+    $('#fc-card').classList.toggle('flipped');
+  }
+  function goNext() {
+    if (F.pos < F.order.length - 1) F.pos++;
+    else if (F.again.length) { F.order = F.order.concat(F.again); F.again = []; F.pos++; }
+    else F.pos++;
+    renderCard();
+  }
+  function goPrev() { if (F.pos > 0) { F.pos--; renderCard(); } }
+  function gradeAgain() { const c = currentCard(); if (c && c.kind === 'card') F.again.push(F.order[F.pos]); goNext(); }
+  function gradeKnown() { const c = currentCard(); if (c && c.kind === 'card') F.known++; goNext(); }
+
+  $('#fc-close').addEventListener('click', () => { $('#flashcards').hidden = true; renderLibrary($('#search').value); });
+  $('#fc-again').addEventListener('click', gradeAgain);
+  $('#fc-known').addEventListener('click', gradeKnown);
+
+  // Swipe: up = next card, down = previous card, tap (no drag) = flip.
+  (() => {
+    const stage = $('#fc-stage');
+    let startY = null, moved = false;
+    const start = e => { startY = (e.touches ? e.touches[0].clientY : e.clientY); moved = false; };
+    const move = () => { moved = true; };
+    const end = e => {
+      if (startY == null) return;
+      const endY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+      const dy = endY - startY;
+      startY = null;
+      if (Math.abs(dy) > 40) { dy < 0 ? goNext() : goPrev(); }
+      else if (!moved || Math.abs(dy) < 8) flipCard();
+    };
+    stage.addEventListener('touchstart', start, { passive: true });
+    stage.addEventListener('touchmove', move, { passive: true });
+    stage.addEventListener('touchend', end);
+    stage.addEventListener('mousedown', start);
+    stage.addEventListener('mousemove', move);
+    stage.addEventListener('mouseup', end);
+  })();
   window.addEventListener('beforeunload', () => { if (P.note) store.set('notes', notes); });
 
   // ---------- Init ----------

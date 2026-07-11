@@ -29,9 +29,9 @@
   }
   function stripBullet(s) { return s.replace(/^\s*(?:[-*•·▪◦‣o]|\d+[.)]|[a-z][.)])\s+/i, '').trim(); }
 
-  // Explicit theme/topic markers written in the notes, e.g.
-  // "Theme 4: Colonial Land Revenue", "T4 - Land Revenue", "Topic 2. Bengal".
-  const THEME_RE = /^(?:themes?|topics?|units?|chapters?|modules?|t)\s*(\d+)\s*[:.)\-–—]\s*(.*)$/i;
+  // Explicit THEME markers written in the notes, e.g.
+  // "THEME 4: Colonial Land Revenue", "Theme 4 - Land Revenue", "T4: …".
+  const THEME_RE = /^(?:theme|t)\s*(\d+)\s*[:.)\-–—]\s*(.*)$/i;
 
   function isHeading(line) {
     const t = line.trim();
@@ -53,13 +53,17 @@
     if (mode === 'sentence') return splitSentences(raw).map(s => ({ body: [s] }));
     if (mode === 'paragraph') return raw.split(/\n\s*\n/).map(p => p.replace(/\n/g, ' ').trim()).filter(Boolean).map(p => ({ body: [p] }));
     // heading
+    // When the note names its own THEMEs, break ONLY at those lines so the theme
+    // cards match them exactly; any other heading stays inside its theme's content.
+    const themed = hasExplicitThemes(raw);
     const chunks = []; let cur = null;
     for (const line of raw.split('\n')) {
       const t = line.trim();
       if (!t) continue;
-      if (isHeading(line)) {
+      const tm = t.match(THEME_RE);
+      const boundary = themed ? !!tm : isHeading(line);
+      if (boundary) {
         if (cur) chunks.push(cur);
-        const tm = t.match(THEME_RE);
         if (tm) cur = { title: (tm[2] || '').trim() || ('Theme ' + tm[1]), themeNo: +tm[1], body: [] };
         else cur = { title: t.replace(/^#{1,6}\s*/, '').trim(), body: [] };
       } else { if (!cur) cur = { body: [] }; cur.body.push(stripBullet(t)); }
@@ -380,20 +384,21 @@
     const { sections, units } = buildUnits(note);
 
     const explicit = sections.some(s => s.themeNo != null);
+    const themeList = explicit ? sections.filter(s => s.themeNo != null) : sections;
     $('#ir-stats').textContent = units.length
-      ? `${sections.length} themes · ${units.length} lines · ~${fmtTime(estimateSeconds(units))}`
+      ? `${themeList.length} theme${themeList.length === 1 ? '' : 's'} · ${units.length} lines · ~${fmtTime(estimateSeconds(units))}`
       : '';
     $('#ir-note').textContent = !units.length
       ? 'Paste or import your notes above to see how they will be read.'
       : explicit
-        ? '✓ Matched the themes named in your notes — each becomes an audio chapter.'
-        : 'No explicit “Theme N:” labels found — segmented by headings/blank lines. Add “Theme 1:”, “Theme 2:” lines to control the chapters.';
+        ? '✓ Matched the THEMEs named in your notes — each becomes an audio chapter. Other headings stay inside their theme.'
+        : 'No explicit “THEME N:” labels found — segmented by headings/blank lines. Add “Theme 1:”, “Theme 2:” lines to define the chapters.';
 
-    // Theme chips
+    // Theme chips — only the explicit THEMEs when the note names them
     const themes = $('#ir-themes'); themes.innerHTML = '';
-    sections.forEach((s, si) => {
+    themeList.forEach((s, i) => {
       const pts = s.lines.filter(l => ['point', 'plain', 'answer'].includes(l.kind)).length;
-      const no = s.themeNo != null ? s.themeNo : (si + 1);
+      const no = s.themeNo != null ? s.themeNo : (i + 1);
       const chip = document.createElement('span');
       chip.className = 'ir-theme' + (s.themeNo != null ? ' matched' : '');
       chip.textContent = `T${no}: ${s.title || 'Untitled'} · ${pts} pt${pts === 1 ? '' : 's'}`;
@@ -507,16 +512,22 @@
   function renderThemes() {
     const sel = $('#theme-jump');
     sel.innerHTML = '';
+    P.themeStarts = [];
+    const themed = P.sections.some(s => s.themeNo != null);
     P.sections.forEach((sec, si) => {
+      if (themed && sec.themeNo == null) return; // only explicit THEMEs are cards
       let name = (sec.title || (sec.lines[0] && sec.lines[0].text) || 'Section')
         .replace(/^#+\s*/, '').replace(/[.:]\s*$/, '').trim();
       if (name.length > 55) name = name.slice(0, 55) + '…';
-      const no = sec.themeNo != null ? sec.themeNo : (si + 1); // honour themes named in the notes
+      const no = sec.themeNo != null ? sec.themeNo : (si + 1);
       const o = document.createElement('option');
       o.value = P.sectionStarts[si];
       o.textContent = `T${no}: ${name}`;
       sel.appendChild(o);
+      P.themeStarts.push(P.sectionStarts[si]);
     });
+    // Hide the jump control when there's nothing meaningful to jump between.
+    sel.style.display = sel.options.length > 1 ? '' : 'none';
   }
 
   function renderReader() {
@@ -553,7 +564,11 @@
       c.classList.toggle('done', +c.dataset.chunk < secIdx);
     });
     const tj = $('#theme-jump');
-    if (tj && P.sectionStarts && P.sectionStarts[secIdx] != null) tj.value = P.sectionStarts[secIdx];
+    if (tj && P.themeStarts && P.themeStarts.length) {
+      let v = null;
+      for (const s of P.themeStarts) { if (s <= P.idx) v = s; else break; }
+      if (v != null) tj.value = String(v);
+    }
   }
 
   function updateProgress() {
@@ -633,7 +648,8 @@
     settings.rate = Math.min(2, Math.max(0.5, r));
     store.set('settings', settings);
     syncSettingsUI();
-    if (P.playing) play();          // rebuild utterance so the new rate takes effect immediately
+    // Don't restart the current line — the new speed applies from the next line,
+    // so playback continues from where it is (Web Speech can't retune a live utterance).
   }
   function stepSpeed(dir) {
     if (dir > 0) applyRate(SPEEDS.find(s => s > settings.rate + 1e-9) ?? SPEEDS[SPEEDS.length - 1]);

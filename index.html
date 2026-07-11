@@ -70,16 +70,27 @@
         <label>Notes text
           <textarea id="note-text" rows="14" placeholder="Paste your UPSC notes here…
 
-Tip: leave a blank line between points, or use headings like:
-FUNDAMENTAL RIGHTS
+Tip: mark themes so they become audio chapters, e.g.
+Theme 1: Fundamental Rights
 Article 14 guarantees equality before law…"></textarea>
         </label>
 
-        <div id="chunk-preview" class="preview"></div>
+        <div id="ir-panel" class="ir-panel">
+          <div class="ir-head">
+            <span class="ir-title">🧠 Intelligent UPSC Reader</span>
+            <span id="ir-stats" class="ir-stats"></span>
+          </div>
+          <p id="ir-note" class="ir-note"></p>
+          <div id="ir-themes" class="ir-themes"></div>
+          <details class="ir-details">
+            <summary>Preview how it will be read aloud</summary>
+            <div id="ir-transcript" class="ir-transcript"></div>
+          </details>
+        </div>
 
         <div class="row end">
           <button id="cancel-edit" class="btn ghost">Cancel</button>
-          <button id="save-note" class="btn primary">Save note</button>
+          <button id="save-note" class="btn primary">Save &amp; build audiobook</button>
         </div>
       </div>
     </section>

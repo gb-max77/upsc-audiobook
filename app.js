@@ -29,15 +29,21 @@
   }
   function stripBullet(s) { return s.replace(/^\s*(?:[-*•·▪◦‣o]|\d+[.)]|[a-z][.)])\s+/i, '').trim(); }
 
+  // Explicit theme/topic markers written in the notes, e.g.
+  // "Theme 4: Colonial Land Revenue", "T4 - Land Revenue", "Topic 2. Bengal".
+  const THEME_RE = /^(?:themes?|topics?|units?|chapters?|modules?|t)\s*(\d+)\s*[:.)\-–—]\s*(.*)$/i;
+
   function isHeading(line) {
     const t = line.trim();
     if (!t) return false;
     if (/^#{1,6}\s/.test(t)) return true;
+    if (THEME_RE.test(t)) return true;
     if (/^\d+[.)]\s*[A-Z].{0,70}$/.test(t) && !/[.!?]$/.test(t)) return true;
     const letters = t.replace(/[^A-Za-z]/g, '');
     if (letters.length >= 3 && t === t.toUpperCase() && t.length < 80) return true;
     return false;
   }
+  const hasExplicitThemes = text => (text || '').split('\n').some(l => THEME_RE.test(l.trim()));
 
   // chunk = { title?, body: [rawLine, …] }
   function parseChunks(text, mode) {
@@ -51,8 +57,12 @@
     for (const line of raw.split('\n')) {
       const t = line.trim();
       if (!t) continue;
-      if (isHeading(line)) { if (cur) chunks.push(cur); cur = { title: t.replace(/^#{1,6}\s*/, '').trim(), body: [] }; }
-      else { if (!cur) cur = { body: [] }; cur.body.push(stripBullet(t)); }
+      if (isHeading(line)) {
+        if (cur) chunks.push(cur);
+        const tm = t.match(THEME_RE);
+        if (tm) cur = { title: (tm[2] || '').trim() || ('Theme ' + tm[1]), themeNo: +tm[1], body: [] };
+        else cur = { title: t.replace(/^#{1,6}\s*/, '').trim(), body: [] };
+      } else { if (!cur) cur = { body: [] }; cur.body.push(stripBullet(t)); }
     }
     if (cur) chunks.push(cur);
     return chunks.filter(c => c.title || c.body.length);
@@ -176,33 +186,36 @@
         splitSentences(src).forEach(s => { if (s.trim()) facts.push(s.trim()); });
       });
       const lines = [];
+      const push = (text, kind, pauseExtra = 0) => lines.push({ text, kind, pauseExtra });
+      const headText = c.themeNo != null ? `Theme ${c.themeNo}: ${title}` : title;
       if (!memo) {
-        if (title) lines.push({ text: title, kind: 'head' });
-        facts.forEach(f => lines.push({ text: f, kind: 'plain' }));
+        if (title) push(headText, 'head', 0.7);
+        facts.forEach(f => push(f, 'plain', isDefinition(f) ? 0.25 : 0));
       } else {
-        if (title) lines.push({ text: title + '.', kind: 'head' });
+        if (title) push(headText, 'head', 0.7);
         const numbered = o.numberPoints && facts.length > 1 && !o.recall;
         facts.forEach((f, k) => {
           const fact = ensureSentence(f);
           if (o.recall) {
             const cue = subjectOf(fact);
-            if (cue) lines.push({ text: cue + '?', kind: 'question' });
-            lines.push({ text: fact, kind: 'answer' });
+            if (cue) push(cue + '?', 'question', 1.1);   // pause to let the learner recall
+            push(fact, 'answer', 0.15);
           } else {
-            lines.push({ text: (numbered ? ordinal(k + 1) + ', ' : '') + fact, kind: 'point' });
+            push((numbered ? ordinal(k + 1) + ', ' : '') + fact, 'point', isDefinition(fact) ? 0.25 : 0);
           }
         });
         if (o.recap) {
           const kt = keyTerms(facts.join(' '));
-          if (kt.length) lines.push({ text: `Key terms to remember. ${kt.join(', ')}.`, kind: 'recap' });
+          if (kt.length) push(`Key terms to remember. ${kt.join(', ')}.`, 'recap', 0.5);
         }
       }
-      if (lines.length) sections.push({ title, ci, lines });
+      if (lines.length) sections.push({ title, ci, themeNo: c.themeNo, lines });
     });
     const units = [];
-    sections.forEach((s, si) => s.lines.forEach(l => units.push({ text: l.text, sectionIdx: si, kind: l.kind })));
+    sections.forEach((s, si) => s.lines.forEach(l => units.push({ text: l.text, sectionIdx: si, kind: l.kind, pauseExtra: l.pauseExtra || 0 })));
     return { sections, units };
   }
+  const isDefinition = s => /\b(is|are|means?|refers?\s+to|defined\s+as|denotes?)\b/i.test(s);
 
   // ===================================================================
   //  DOCX IMPORT (in-browser, no library: native DecompressionStream)
@@ -346,18 +359,64 @@
     renderPreview();
     showView('add');
   }
-  function renderPreview() {
-    const note = { text: $('#note-text').value, mode: $('#chunk-mode').value, memoFlow: $('#memo-flow').checked };
-    const { sections, units } = buildUnits(note);
-    const box = $('#chunk-preview');
-    box.innerHTML = `<span class="chunk"><span class="count">${sections.length}</span>&nbsp;sections</span>
-      <span class="chunk"><span class="count">${units.length}</span>&nbsp;audio lines</span>`;
-    units.slice(0, 10).forEach(u => {
-      const d = document.createElement('span');
-      d.className = 'chunk k-' + u.kind;
-      d.textContent = u.text.slice(0, 46);
-      box.appendChild(d);
+  const KIND_LABEL = { head: 'THEME', plain: 'point', point: 'point', question: 'recall Q', answer: 'answer', recap: 'recap' };
+  function estimateSeconds(units) {
+    let sec = 0;
+    units.forEach(u => {
+      const words = u.text.split(/\s+/).filter(Boolean).length;
+      sec += (words / (160 * settings.rate)) * 60 + settings.gap + (u.pauseExtra || 0);
     });
+    return sec;
+  }
+  const fmtTime = s => `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+
+  // The "Intelligent UPSC Reader" pre-audio stage — shows how the notes were
+  // understood: theme segmentation, per-theme points, pauses, and a read preview.
+  function renderPreview() {
+    const text = $('#note-text').value;
+    // If the notes name their own themes, segment by them automatically.
+    if (hasExplicitThemes(text) && $('#chunk-mode').value !== 'heading') $('#chunk-mode').value = 'heading';
+    const note = { text, mode: $('#chunk-mode').value, memoFlow: $('#memo-flow').checked };
+    const { sections, units } = buildUnits(note);
+
+    const explicit = sections.some(s => s.themeNo != null);
+    $('#ir-stats').textContent = units.length
+      ? `${sections.length} themes · ${units.length} lines · ~${fmtTime(estimateSeconds(units))}`
+      : '';
+    $('#ir-note').textContent = !units.length
+      ? 'Paste or import your notes above to see how they will be read.'
+      : explicit
+        ? '✓ Matched the themes named in your notes — each becomes an audio chapter.'
+        : 'No explicit “Theme N:” labels found — segmented by headings/blank lines. Add “Theme 1:”, “Theme 2:” lines to control the chapters.';
+
+    // Theme chips
+    const themes = $('#ir-themes'); themes.innerHTML = '';
+    sections.forEach((s, si) => {
+      const pts = s.lines.filter(l => ['point', 'plain', 'answer'].includes(l.kind)).length;
+      const no = s.themeNo != null ? s.themeNo : (si + 1);
+      const chip = document.createElement('span');
+      chip.className = 'ir-theme' + (s.themeNo != null ? ' matched' : '');
+      chip.textContent = `T${no}: ${s.title || 'Untitled'} · ${pts} pt${pts === 1 ? '' : 's'}`;
+      themes.appendChild(chip);
+    });
+
+    // Read-aloud transcript preview
+    const tr = $('#ir-transcript'); tr.innerHTML = '';
+    units.slice(0, 14).forEach(u => {
+      const row = document.createElement('div');
+      row.className = 'ir-line k-' + u.kind;
+      const pause = u.pauseExtra >= 0.7 ? '⏸⏸' : u.pauseExtra >= 0.25 ? '⏸' : '';
+      row.innerHTML = `<span class="ir-kind">${KIND_LABEL[u.kind] || u.kind}</span>` +
+        `<span class="ir-text"></span><span class="ir-pause">${pause}</span>`;
+      row.querySelector('.ir-text').textContent = speakify(u.text);
+      tr.appendChild(row);
+    });
+    if (units.length > 14) {
+      const more = document.createElement('div');
+      more.className = 'ir-line more';
+      more.textContent = `+ ${units.length - 14} more lines…`;
+      tr.appendChild(more);
+    }
   }
   $('#note-text').addEventListener('input', renderPreview);
   $('#chunk-mode').addEventListener('change', renderPreview);
@@ -371,7 +430,7 @@
       if (!text.trim()) throw new Error('no readable text found');
       $('#note-text').value = text;
       if (!$('#note-title').value) $('#note-title').value = f.name.replace(/\.[^.]+$/, '');
-      if (/(^|\n)#\s/.test(text)) $('#chunk-mode').value = 'heading';
+      if (hasExplicitThemes(text) || /(^|\n)#\s/.test(text)) $('#chunk-mode').value = 'heading';
       else if (/\n\s*\n/.test(text)) $('#chunk-mode').value = 'paragraph';
       renderPreview();
     } catch (err) {
@@ -452,9 +511,10 @@
       let name = (sec.title || (sec.lines[0] && sec.lines[0].text) || 'Section')
         .replace(/^#+\s*/, '').replace(/[.:]\s*$/, '').trim();
       if (name.length > 55) name = name.slice(0, 55) + '…';
+      const no = sec.themeNo != null ? sec.themeNo : (si + 1); // honour themes named in the notes
       const o = document.createElement('option');
       o.value = P.sectionStarts[si];
-      o.textContent = `T${si + 1}: ${name}`;
+      o.textContent = `T${no}: ${name}`;
       sel.appendChild(o);
     });
   }
@@ -502,34 +562,43 @@
     if (P.note) { P.note.pos = P.idx; store.set('notes', notes); }
   }
 
-  let keepAlive = null;
+  let keepAlive = null, currentUtter = null;
   function play() {
     if (!P.queue.length) return;
+    // Detach the outgoing utterance's handlers so the cancel() below can't fire
+    // its onend and advance the index (that was the "skips a line" bug).
+    if (currentUtter) { currentUtter.onend = null; currentUtter.onerror = null; }
     synth.cancel();
     const u = new SpeechSynthesisUtterance(speakify(P.queue[P.idx].text));
     const v = currentVoice();
     if (v) { u.voice = v; u.lang = v.lang; }
-    u.rate = settings.rate; u.pitch = settings.pitch;
+    u.rate = clampRate(settings.rate); u.pitch = settings.pitch;
     u.onend = onUtterEnd; u.onerror = onUtterEnd;
+    currentUtter = u;
     P.playing = true;
     setPlayIcon(); highlight(); updateProgress();
-    synth.speak(u);
+    // Small delay avoids the Chrome cancel()->speak() race that can drop audio;
+    // guarded so only the latest requested line actually speaks.
+    setTimeout(() => { if (P.playing && currentUtter === u) synth.speak(u); }, 40);
     clearInterval(keepAlive);
     keepAlive = setInterval(() => { if (synth.speaking && !synth.paused) { synth.pause(); synth.resume(); } }, 9000);
   }
+  const clampRate = r => Math.min(2, Math.max(0.5, r));
   function onUtterEnd() {
     if (!P.playing) return;
-    if (P.repeatsLeft > 1) { P.repeatsLeft--; return scheduleNext(play); }
+    // Intelligent pause: base gap + a per-line extra decided by the reader stage.
+    const ms = Math.round(Math.max(0, settings.gap + (P.queue[P.idx]?.pauseExtra || 0)) * 1000);
+    if (P.repeatsLeft > 1) { P.repeatsLeft--; return schedule(ms); }
     P.repeatsLeft = settings.repeat;
-    if (P.idx < P.queue.length - 1) { P.idx++; scheduleNext(play); }
-    else if (settings.loop) { P.idx = 0; scheduleNext(play); }
+    if (P.idx < P.queue.length - 1) { P.idx++; schedule(ms); }
+    else if (settings.loop) { P.idx = 0; schedule(ms); }
     else { stopSpeech(); updateProgress(); }
   }
-  function scheduleNext(fn) { setTimeout(() => { if (P.playing) fn(); }, Math.round(settings.gap * 1000)); }
+  function schedule(ms) { setTimeout(() => { if (P.playing) play(); }, ms); }
 
   function togglePlay() { if (!P.queue.length) return; P.playing ? pauseSpeech() : play(); }
-  function pauseSpeech() { P.playing = false; synth.cancel(); clearInterval(keepAlive); setPlayIcon(); }
-  function stopSpeech() { P.playing = false; synth.cancel(); clearInterval(keepAlive); setPlayIcon(); }
+  function pauseSpeech() { P.playing = false; if (currentUtter) { currentUtter.onend = null; currentUtter.onerror = null; } synth.cancel(); clearInterval(keepAlive); setPlayIcon(); }
+  function stopSpeech() { P.playing = false; if (currentUtter) { currentUtter.onend = null; currentUtter.onerror = null; } synth.cancel(); clearInterval(keepAlive); setPlayIcon(); }
   const setPlayIcon = () => { $('#playpause').textContent = P.playing ? '⏸' : '▶'; };
 
   function next() { if (P.idx < P.queue.length - 1) { P.idx++; P.repeatsLeft = settings.repeat; P.playing ? play() : (highlight(), updateProgress()); } }

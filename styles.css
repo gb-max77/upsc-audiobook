@@ -108,14 +108,29 @@ input[type=range] { accent-color: var(--accent); }
 output { font-weight: 700; color: var(--text); }
 hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
 
-.preview { display: flex; flex-wrap: wrap; gap: 6px; }
-.preview .chunk { background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--muted); max-width: 100%;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.preview .count { color: var(--accent-2); font-weight: 700; }
-.preview .k-head { border-color: var(--accent); color: var(--text); font-weight: 700; }
-.preview .k-recap { border-color: var(--accent-2); color: var(--accent-2); }
-.preview .k-question { border-color: var(--accent); color: var(--accent); }
+/* ---- Intelligent UPSC Reader panel ---- */
+.ir-panel { background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.ir-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ir-title { font-weight: 800; font-size: 14px; color: var(--text); }
+.ir-stats { font-size: 12px; color: var(--accent-2); font-weight: 700; }
+.ir-note { margin: 8px 0 10px; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.ir-themes { display: flex; flex-wrap: wrap; gap: 6px; }
+.ir-theme { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+  padding: 5px 11px; font-size: 12px; color: var(--text); font-weight: 600; }
+.ir-theme.matched { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ir-details { margin-top: 12px; }
+.ir-details summary { cursor: pointer; font-size: 12.5px; color: var(--accent); font-weight: 700; }
+.ir-transcript { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.ir-line { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.45; }
+.ir-line.more { color: var(--muted); font-style: italic; padding-left: 4px; }
+.ir-kind { flex: 0 0 62px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+  color: var(--muted); padding-top: 2px; text-align: right; }
+.ir-text { flex: 1; color: var(--text); }
+.ir-pause { color: var(--accent-2); font-size: 11px; }
+.ir-line.k-head .ir-text { font-weight: 800; }
+.ir-line.k-head .ir-kind { color: var(--accent); }
+.ir-line.k-recap .ir-text { font-style: italic; color: var(--accent-2); }
+.ir-line.k-question .ir-text { font-weight: 700; color: var(--accent); }
 .hint { margin: -6px 0 2px; font-size: 12px; color: var(--muted); font-weight: 500; }
 .check.memo { align-items: flex-start; background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 10px; padding: 12px; line-height: 1.45; }
